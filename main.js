@@ -3,7 +3,7 @@ const CANVAS_HEIGHT = 400;
 var DETECT_MOUSE = true;
 var DETECT_KEYBOARD = true;
 const TILES_SIZE = 20;
-var fps = 25;
+const fps = 25;
 const COLLISION_DETECTION_MODE = "scoped";//"scoped" or "all"
 var should_draw_collision_boxes = false;
 
@@ -17,18 +17,15 @@ const mouse_buttons = {};
 ctx.imageSmoothingEnabled = false;
 const starting_world = "main";
 var images = {};
-var interval;
-var grd = ctx.createLinearGradient(0, 0, 170, 0);
-var class_collisions = {};
-var dlt = 0;
-grd.addColorStop(0, "black");
-grd.addColorStop(1, "rgb(152, 3, 252)");
 
+var dlt = 0;
+var interval;
 canvas.style.width = CANVAS_WIDTH + "px";
 canvas.style.height = CANVAS_HEIGHT + "px";
 canvas.width = canvas.clientWidth;
 canvas.height = canvas.clientHeight;
-var current_world_name = null;
+var current_world_name = "null";
+var class_collisions = {};
 var worlds = {
 	"main":{
 		"actors":[],
@@ -49,12 +46,12 @@ var worlds = {
 		},
 		"gravity":{
 			"x":0,
-			"y":0.2,
+			"y":0,
 			"exist":true,
 		},
 		"medium_drag":{
-			"x":0.3,
-			"y":0.1,
+			"x":0,
+			"y":0,
 			"exist":true,
 		},
 		"always_tiles_load":false,
@@ -1273,110 +1270,110 @@ function cr_animation(frames_array, loop){
 
 function cr_actor_type(name, p) {
 	actor_types[name] = {
-		"image_mode": p.image_mode ?? "static",//'static' / 'animated'
-		"static_image_name": p.static_image_name ?? null,//string image name
-		"collision_mode": p.image_mode ?? "static",//'static' / 'dynamic'
-		"swept_collision_mode": p.swept_collision_mode ?? false,//true / false
-		"swept_collision_mode_step": p.swept_collision_mode_step ?? 1,// an integer
-		"static_collisions": p.static_collisions ?? null,//[]
-		"width": p.width,//number
-		"height": p.height,//number
-		"angle": p.angle ?? 0,//number in degrees
-		"rotation_center": p.rotation_center ?? "center", //[number, number] / 'center' (coordinates in relation to top left of actor)
-		"collide_with_tiles": p.collide_with_tiles ?? true,//boolean
-		"collide_with_actors": p.collide_with_actors ?? true,//boolean
-		"sensor": p.sensor ?? false,//boolean
-		"dead": p.dead ?? false,//boolean
-		"playing_animation": p.playing_animation ?? null,//string that is a name of a animation in `animations`
-		"playing_animation_frame": p.playing_animation_frame ?? 0,//integer
-		"animation_clock": p.animation_clock ?? 0,//number
-		"always_physics_load": p.always_physics_load ?? false,//boolean, when it is true: makes it so that the physics of it are applied even when off screen
-		"always_appearance_load": p.always_appearance_load ?? false,//boolean, when it is true: makes it so that the appearance of it are applied even when off screen
-		"animations": p.animations ?? {},
-		"vx": p.vx ?? 0,//number velocity in x direction
-		"vy": p.vy ?? 0,//number velocity in y direction
+		"image_mode": p?.image_mode ?? "static",//'static' / 'animated'
+		"static_image_name": p?.static_image_name ?? null,//string image name
+		"collision_mode": p?.image_mode ?? "static",//'static' / 'dynamic'
+		"swept_collision_mode": p?.swept_collision_mode ?? false,//true / false
+		"swept_collision_mode_step": p?.swept_collision_mode_step ?? 1,// an integer
+		"static_collisions": p?.static_collisions ?? null,//[]
+		"width": p?.width,//number
+		"height": p?.height,//number
+		"angle": p?.angle ?? 0,//number in degrees
+		"rotation_center": p?.rotation_center ?? "center", //[number, number] / 'center' (coordinates in relation to top left of actor)
+		"collide_with_tiles": p?.collide_with_tiles ?? true,//boolean
+		"collide_with_actors": p?.collide_with_actors ?? true,//boolean
+		"sensor": p?.sensor ?? false,//boolean
+		"dead": p?.dead ?? false,//boolean
+		"playing_animation": p?.playing_animation ?? null,//string that is a name of a animation in `animations`
+		"playing_animation_frame": p?.playing_animation_frame ?? 0,//integer
+		"animation_clock": p?.animation_clock ?? 0,//number
+		"always_physics_load": p?.always_physics_load ?? false,//boolean, when it is true: makes it so that the physics of it are applied even when off screen
+		"always_appearance_load": p?.always_appearance_load ?? false,//boolean, when it is true: makes it so that the appearance of it are applied even when off screen
+		"animations": p?.animations ?? {},
+		"vx": p?.vx ?? 0,//number velocity in x direction
+		"vy": p?.vy ?? 0,//number velocity in y direction
 		"air_resistance":{
-			"x": p.air_resistance.x ?? 0,//air resistance in x direction, 0 is no resistance contribution to medium_drag
-			"y": p.air_resistance.x ?? 0,//air resistance in y direction, 0 is no resistance contribution to medium_drag
+			"x": p?.air_resistance?.x ?? 0,//air resistance in x direction, 0 is no resistance contribution to medium_drag
+			"y": p?.air_resistance?.y ?? 0,//air resistance in y direction, 0 is no resistance contribution to medium_drag
 		},
 		"friction":{
-			"x": p.friction.x ?? 0,//friction in x direction, 0 is no friction contribution
-			"y": p.friction.y ?? 0,//friction in y direction, 0 is no friction contribution
+			"x": p?.friction?.x ?? 0,//friction in x direction, 0 is no friction contribution
+			"y": p?.friction?.y ?? 0,//friction in y direction, 0 is no friction contribution
 		},
 		"bounce":{
-			"x": p.bounce.x ?? 0,//`bounciness` in x direction, 0 is no bounciness contribution
-			"y": p.bounce.y ?? 0,//`bounciness` in y direction, 0 is no bounciness contribution
+			"x": p?.bounce?.x ?? 0,//`bounciness` in x direction, 0 is no bounciness contribution
+			"y": p?.bounce?.y ?? 0,//`bounciness` in y direction, 0 is no bounciness contribution
 		},
-		"affected_by_gravity": p.affected_by_gravity ?? false,//boolean
-		"affected_by_air_resistance": p.affected_by_air_resistance ?? false,//boolean
-		"affected_by_friction": p.affected_by_friction ?? false,//boolean
-		"pushable": p.pushable ?? false,//boolean
-		"push_motion_transfer": p.push_motion_transfer ?? 0,//contributes to the velocity it should transfer to the collided actor, 0 is no contribution
-		"screen_locked": p.screen_locked ?? false,//makes it act like a HUD element
+		"affected_by_gravity": p?.affected_by_gravity ?? false,//boolean
+		"affected_by_air_resistance": p?.affected_by_air_resistance ?? false,//boolean
+		"affected_by_friction": p?.affected_by_friction ?? false,//boolean
+		"pushable": p?.pushable ?? false,//boolean
+		"push_motion_transfer": p?.push_motion_transfer ?? 0,//contributes to the velocity it should transfer to the collided actor, 0 is no contribution
+		"screen_locked": p?.screen_locked ?? false,//makes it act like a HUD element
 	};
 }
 
 function cr_tile_type(name, p){
 	tile_types[name] = {
-		"image_mode": p.image_mode ?? "static",//'static' / 'animated'
-		"static_image_name": p.static_image_name ?? null,//string image name
-		"collision": p.collision ?? "none",//'box' / 'circle' / 'none' / 'bottom_half_box' / 'top_half_box' / 'top_half_box' / 'left_half_box' / 'right_half_box'
-		"collision_class": p.collision_class,//string
-		"sensor": p.sensor ?? false,//boolean
-		"playing_animation_frame": p.playing_animation_frame ?? 0,
-		"playing_animation": p.playing_animation ?? null,//string
-		"animation_clock": p.animation_clock ?? 0,
-		"animations": p.animations ?? {},
+		"image_mode": p?.image_mode ?? "static",//'static' / 'animated'
+		"static_image_name": p?.static_image_name ?? null,//string image name
+		"collision": p?.collision ?? "none",//'box' / 'circle' / 'none' / 'bottom_half_box' / 'top_half_box' / 'top_half_box' / 'left_half_box' / 'right_half_box'
+		"collision_class": p?.collision_class,//string
+		"sensor": p?.sensor ?? false,//boolean
+		"playing_animation_frame": p?.playing_animation_frame ?? 0,
+		"playing_animation": p?.playing_animation ?? null,//string
+		"animation_clock": p?.animation_clock ?? 0,
+		"animations": p?.animations ?? {},
 		"friction":{
-			"x": p.friction.x ?? 0,
-			"y":p.friction.y ?? 0,
+			"x": p?.friction?.x ?? 0,
+			"y": p?.friction?.y ?? 0,
 		},
 		"bounce":{
-			"x": p.bounce.x ?? 0,
-			"y": p.bounce.y ?? 0,
+			"x": p?.bounce?.x ?? 0,
+			"y": p?.bounce?.y ?? 0,
 		}
 	}
 }
 
 function cr_collision_class(name, p){
 	collision_classes[name] = {
-		"collide_with_tiles": p.collide_with_tiles ?? true,
-		"collide_with_actors": p.collide_with_actors ?? true,
-		"ignore_collision_classes": p.ignore_collision_classes ?? [],//put true for all, put [] for none
-		"sensor": p.sensor ?? false,
-		"on_collide":[],//["collision_class_name", function], ... (activates when a certain collision class collides with it)
+		"collide_with_tiles": p?.[collide_with_tiles] ?? true,
+		"collide_with_actors": p?.collide_with_actors ?? true,
+		"ignore_collision_classes": p?.ignore_collision_classes ?? [],//put true for all, put [] for none
+		"sensor": p?.sensor ?? false,
+		"on_collide": p?.on_collide ?? [],//["collision_class_name", function], ... (activates when a certain collision class collides with it)
 	}
 }
 
 function cr_world(name, p){
 	worlds[name] ={
-		"actors": p.actors ?? [],
-		"tiles": p.tiles ?? {},
-		"background_color": p.background_color ?? "white",
-		"background_image": p.background_image ?? null,
-		"background_image_scrollable": p.background_image_scrollable ?? false,
+		"actors": p?.actors ?? [],
+		"tiles": p?.tiles ?? {},
+		"background_color": p?.background_color ?? "white",
+		"background_image": p?.background_image ?? null,
+		"background_image_scrollable": p?.background_image_scrollable ?? false,
 		"background_image_position":{
-			"x": p.background_image_position.x ?? 0,
-			"y": p.background_image_position.y ?? 0,
+			"x": p?.background_image_position?.x ?? 0,
+			"y": p?.background_image_position?.y ?? 0,
 		},
-		"background_image_width": p.background_image_width ?? null,
-		"background_image_height": p.background_image_height ?? null,
-		"background_image_affected_by_zoom": p.background_image_affected_by_zoom ?? false,
+		"background_image_width": p?.background_image_width ?? null,
+		"background_image_height": p?.background_image_height ?? null,
+		"background_image_affected_by_zoom": p?.background_image_affected_by_zoom ?? false,
 		"background_image_scroll_speed":{
-			"x": p.background_image_scroll_speed.x ?? 0,
-			"y": p.background_image_scroll_speed.y ?? 0,
+			"x": p?.background_image_scroll_speed.x ?? 0,
+			"y": p?.background_image_scroll_speed.y ?? 0,
 		},
 		"gravity":{
-			"x": p.gravity.x ?? 0,
-			"y": p.gravity.y ?? 0,
-			"exist": p.gravity.exist ?? true,
+			"x": p?.gravity?.x ?? 0,
+			"y": p?.gravity?.y ?? 0,
+			"exist": p?.gravity?.exist ?? true,
 		},
 		"medium_drag":{
-			"x": p.medium_drag.x ?? 0,
-			"y": p.medium_drag.y ?? 0,
-			"exist": p.medium_drag.exist ?? true,
+			"x": p?.medium_drag?.x ?? 0,
+			"y": p?.medium_drag?.y ?? 0,
+			"exist": p?.medium_drag?.exist ?? true,
 		},
-		"always_tiles_load": p.always_tiles_load ?? false,
+		"always_tiles_load": p?.always_tiles_load ?? false,
 	}
 }
 
