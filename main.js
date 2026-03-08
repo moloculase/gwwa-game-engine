@@ -5,6 +5,7 @@ var DETECT_KEYBOARD = true;
 const TILES_SIZE = 20;
 var fps = 25;
 const COLLISION_DETECTION_MODE = "scoped";//"scoped" or "all"
+var should_draw_collision_boxes = false;
 
 var canvas = document.getElementById("canvass");
 const ctx = canvas.getContext("2d");
@@ -19,6 +20,7 @@ var images = {};
 var interval;
 var grd = ctx.createLinearGradient(0, 0, 170, 0);
 var class_collisions = {};
+var dlt = 0;
 grd.addColorStop(0, "black");
 grd.addColorStop(1, "rgb(152, 3, 252)");
 
@@ -43,7 +45,7 @@ var worlds = {
 		"background_image_affected_by_zoom":true,
 		"background_image_scroll_speed":{
 			"x":1,
-			"y":1.1,
+			"y":1,
 		},
 		"gravity":{
 			"x":0,
@@ -56,7 +58,7 @@ var worlds = {
 			"exist":true,
 		},
 		"always_tiles_load":false,
-	}
+	},
 };
 var actor_types = {};
 var tile_types = {};
@@ -73,9 +75,13 @@ var camera = {
 	},
 	"zoom":1,
 	"vzoom":0,
-	"zoom_resistance":0.9,
-	"effect_color":null,//"rgba(245, 15, 15, 0.61)",
-	"effect_image":null,//"images",
+	"zoom_resistance": 0.9,
+	"effect_color": null,//"rgba(245, 15, 15, 0.61)",
+	"effect_image": null,//"images",
+	"clock":0,
+	"switch_world_effect_interval":null,
+	"shake_interval":null,
+	"shake_clock":0,
 }
 var collision_classes = {}
 
@@ -99,9 +105,37 @@ function load_images(srcs_array){//this so that it does not have to load the ima
 	});
 }
 
-function switch_world(world_name){
-	current_world_name = world_name;
-	canvas.style.backgroundColor = worlds[current_world_name]["background_color"];
+//effect types: none, blur
+function switch_world(world_name, effect_p="none"){
+	function mini_switch(){
+		current_world_name = world_name;
+		canvas.style.backgroundColor = worlds[current_world_name]["background_color"];
+	}
+	switch (effect_p.type) {
+		case "none":
+			mini_switch();
+			break;
+		case "blur":
+			camera.clock = 0;
+			camera["direction"] = 1;
+			function blur(){
+				camera.effect_color = "rgba("+effect_p.color.r+","+effect_p.color.g+","+effect_p.color.b+","+Math.min(camera.clock, 1)+")";
+				camera.clock += (effect_p.step ?? 0.1)*camera.direction;
+				if (camera.clock >= 1){
+					camera.direction = -1;
+					mini_switch();
+				}
+				if (camera.clock <= 0){
+					clearInterval(camera.switch_world_effect_interval);
+				}
+			}
+			camera.switch_world_effect_interval = setInterval(blur, effect_p.time);
+			break;
+		default:
+			mini_switch();
+			console.log("effect type does not exist, yet.", effect_p.type);
+			break;
+	}
 }
 
 canvas.focus();
@@ -138,7 +172,7 @@ function place_tile(row, column, type_name, world_name=null){
 	worlds[world_name ?? current_world_name]["tiles"][String(row)+"x"+String(column)] = type_name;
 }
 
-function place_tiles(row1, column1, row2, column2, type_name, world_name=null){
+function place_tiles(row1, column1, row2, column2, type_name, world_name=null, make_tile_group=false){
 	ix = column1;
 	iy = row1;
 	while (iy <= row2){
@@ -190,12 +224,39 @@ function is_tile_on_screen(row, column){
 function draw_tiles(){
 	ctx.save();
 	ctx.scale(camera["zoom"], camera["zoom"]);
+	let done_types = {};
 	if (worlds[current_world_name]["tiles"].always_tiles_load){
 		Object.entries(worlds[current_world_name]["tiles"]).forEach(([key, value]) => {
 			if ((value ?? "nothing") !== "nothing"){
 				let tmp = key.split("x");
+				let element = tile_types[value];
+				if (element["image_mode"] === "static"){
+					image = images[element["static_image_name"]]
+				}else if (value in done_types){
+					image = done_types[value];
+				}else if (element["image_mode"] === "animated"){
+					if (element["animation_clock"] === 0){
+						image = images[element["animations"][element["playing_animation"]]["frames"][0][0]];
+						element["playing_animation_frame"] = 0;
+					}else if (element["animation_clock"] * 1000 / fps >= element["animations"][element["playing_animation"]]["frames"][element["playing_animation_frame"]][1]){
+						element["animation_clock"] = 0;
+						if ((element["playing_animation_frame"] === element["animations"][element["playing_animation"]]["frames"].length-1) && element["animations"][element["playing_animation"]]["loop"]){
+							image = images[element["animations"][element["playing_animation"]]["frames"][0][0]];
+							element["playing_animation_frame"] = 0;
+						}else if ((element["playing_animation_frame"] === element["animations"][element["playing_animation"]]["frames"].length-1) && !element["animations"][element["playing_animation"]]["loop"]){
+							image = images[element["animations"][element["playing_animation"]]["frames"][element["playing_animation_frame"]][0]];
+						}else {
+							element["playing_animation_frame"]++;
+							image = images[element["animations"][element["playing_animation"]]["frames"][element["playing_animation_frame"]][0]];
+						}
+					}else {
+						image = images[element["animations"][element["playing_animation"]]["frames"][element["playing_animation_frame"]][0]];
+					}
+					element["animation_clock"]++;
+					done_types[value] = image;
+				}
 				ctx.drawImage(
-					images[tile_types[value]["image_name"]], 
+					image,
 					column_to_x(tmp[1])-camera["x"],
 					row_to_y(tmp[0])-camera["y"],
 					TILES_SIZE, TILES_SIZE
@@ -207,8 +268,34 @@ function draw_tiles(){
 			if ((value ?? "nothing") !== "nothing" ){
 				let tmp = key.split("x");
 				if (is_tile_on_screen(tmp[0], tmp[1])){
+					let element = tile_types[value];
+					if (element["image_mode"] === "static"){
+						image = images[element["static_image_name"]]
+					}else if (value in done_types){
+						image = done_types[value];
+					}else if (element["image_mode"] === "animated"){
+						if (element["animation_clock"] === 0){
+							image = images[element["animations"][element["playing_animation"]]["frames"][0][0]];
+							element["playing_animation_frame"] = 0;
+						}else if (element["animation_clock"] * 1000 / fps >= element["animations"][element["playing_animation"]]["frames"][element["playing_animation_frame"]][1]){
+							element["animation_clock"] = 0;
+							if ((element["playing_animation_frame"] === element["animations"][element["playing_animation"]]["frames"].length-1) && element["animations"][element["playing_animation"]]["loop"]){
+								image = images[element["animations"][element["playing_animation"]]["frames"][0][0]];
+								element["playing_animation_frame"] = 0;
+							}else if ((element["playing_animation_frame"] === element["animations"][element["playing_animation"]]["frames"].length-1) && !element["animations"][element["playing_animation"]]["loop"]){
+								image = images[element["animations"][element["playing_animation"]]["frames"][element["playing_animation_frame"]][0]];
+							}else {
+								element["playing_animation_frame"]++;
+								image = images[element["animations"][element["playing_animation"]]["frames"][element["playing_animation_frame"]][0]];
+							}
+						}else {
+							image = images[element["animations"][element["playing_animation"]]["frames"][element["playing_animation_frame"]][0]];
+						}
+						element["animation_clock"]++;
+						done_types[value] = image;
+					}
 					ctx.drawImage(
-						images[tile_types[value]["image_name"]], 
+						image,
 						column_to_x(tmp[1])-camera["x"],
 						row_to_y(tmp[0])-camera["y"],
 						TILES_SIZE, TILES_SIZE
@@ -217,7 +304,8 @@ function draw_tiles(){
 			}
 		});
 	}
-	ctx.restore()
+	ctx.restore();
+	dlt++;
 }
 
 //ACTORS STUFF
@@ -283,35 +371,49 @@ function draw_actors(){
 			}
 			element["animation_clock"]++;
 		}
-		ctx.save();
-		ctx.scale(camera["zoom"], camera["zoom"]);
-		if ((element.rotation_center ?? "center") === "center"){
-			ctx.translate(
-				element["x"] + element["width"] / 2 - camera["x"],
-				element["y"] + element["height"] / 2 - camera["y"]
+		if (element.screen_locked){
+			ctx.rotate(radians(element["angle"] ?? 0));
+			ctx.drawImage(
+				image,
+				element.x,
+				element.y,
+				element["width"],
+				element["height"],
 			);
+			ctx.restore();
 		}else {
-			ctx.translate(
-				element[rotation_center[0]] - camera["x"],
-				element[rotation_center[1]] - camera["y"]
+			ctx.save();
+			ctx.scale(camera["zoom"], camera["zoom"]);
+			if ((element.rotation_center ?? "center") === "center"){
+				ctx.translate(
+					element["x"] + element["width"] / 2 - camera["x"],
+					element["y"] + element["height"] / 2 - camera["y"]
+				);
+			}else {
+				ctx.translate(
+					element["x"] + element.rotation_center[0] - camera["x"],
+					element["y"] + element.rotation_center[1] - camera["y"]
+				);
+			}
+			ctx.rotate(radians(element["angle"] ?? 0));
+			ctx.drawImage(
+				image,
+				-element["width"] / 2,
+				-element["height"] / 2,
+				element["width"],
+				element["height"],
 			);
+			ctx.restore();
 		}
-		ctx.rotate(radians(element["angle"] ?? 0));
-		ctx.drawImage(
-			image,
-			-element["width"] / 2,
-			-element["height"] / 2,
-			element["width"],
-			element["height"],
-		);
-		ctx.restore();
 		//collision bounding drawing
 		//comment this part out when actual game do
 		//
-		ctx.save();
-		ctx.scale(camera["zoom"], camera["zoom"]);
-		draw_collision_boxes(element);
-		ctx.restore();
+		if (should_draw_collision_boxes){
+			ctx.save();
+			ctx.scale(camera["zoom"], camera["zoom"]);
+			draw_collision_boxes(element, "magenta", element.screen_locked);
+			ctx.restore();
+		}
 		i++;
 	}
 }
@@ -333,7 +435,7 @@ function rand_int(min, max){
 	return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function draw_collision_boxes(element, color="magenta"){
+function draw_collision_boxes(element, color="magenta", screen_locked=false){
 	let actor_collision_bounds = "nothing"
 	let c = null;
 	if ((element["collision_mode"] === "static") || (element["image_mode"] === "static")){
@@ -349,12 +451,14 @@ function draw_collision_boxes(element, color="magenta"){
 		return 0;
 	}
 	ctx.strokeStyle = color;
+	ctx.fillStyle = "lime";
 	actor_collision_bounds.forEach(element2 => {
+		ctx.fillRect(element["x"]-(!screen_locked ? camera["x"] : 0), element["y"]-(!screen_locked ? camera["y"] : 0), 5, 5);
 		if (element2[0] === "box"){
 			ctx.beginPath();
 			ctx.rect(
-				element2[1]+element["x"]-camera["x"],
-				element2[2]+element["y"]-camera["y"],
+				element2[1]+element["x"]-(!screen_locked ? camera["x"] : 0),
+				element2[2]+element["y"]-(!screen_locked ? camera["y"] : 0),
 				element2[3],
 				element2[4],
 			);
@@ -362,8 +466,8 @@ function draw_collision_boxes(element, color="magenta"){
 		}else if (element2[0] === "circle"){
 			ctx.beginPath();
 			ctx.arc(
-				element2[1]+element["x"]-camera["x"],
-				element2[2]+element["y"]-camera["y"],
+				element2[1]+element["x"]-(!screen_locked ? camera["x"] : 0),
+				element2[2]+element["y"]-(!screen_locked ? camera["y"] : 0),
 				element2[3],
 				0, 2 * Math.PI
 			);
@@ -481,8 +585,10 @@ function is_actor_colliding_with_a_tile(actor_id, world_name=null, mode="scoped"
 	let location = [];
 	let actor_in_question = worlds[world_name ?? current_world_name]["actors"][actor_id];
 	let actor_collision_bounds = null;
-	var success = false;
+	let success = false;
+	let sensor = false;
 	let tile_name;
+	let class_name;
 	let j = 0;
 	let key = null;
 	let value = null;
@@ -498,19 +604,21 @@ function is_actor_colliding_with_a_tile(actor_id, world_name=null, mode="scoped"
 	}
 	let tiles_check = {};
 	let tmp = {};
+	let actor_x = actor_in_question["x"]+(actor_in_question.screen_locked ? camera["x"] : 0)
+	let actor_y = actor_in_question["y"]+(actor_in_question.screen_locked ? camera["y"] : 0)
 	if (mode === "scoped"){
 		actor_collision_bounds.forEach(element => {
 			tmp = {};
 			if (element[0] === "box"){
 				tmp = possible_tiles("box", [
-					[element[1]+actor_in_question["x"], element[2]+actor_in_question["y"]],
-					[(element[1]+actor_in_question["x"]+element[3]) ?? (element[1]+actor_in_question["width"]), (element[2]+actor_in_question["y"]+element[4]) ?? (element[2]+actor_in_question["height"])]
+					[element[1]+actor_x, element[2]+actor_y],
+					[(element[1]+actor_x+element[3]) ?? (element[1]+actor_in_question["width"]), (element[2]+actor_y+element[4]) ?? (element[2]+actor_in_question["height"])]
 				]);
 				tiles_check = Object.assign({}, tiles_check, tmp);
 			}else if (element[0] === "circle"){
 				tmp = possible_tiles("circle", [
-					(element[1]+actor_in_question["x"]) ?? (actor_in_question["x"]+actor_in_question["width"]/2),
-					(element[2]+actor_in_question["y"]) ?? (actor_in_question["x"]+actor_in_question["height"]/2),
+					(element[1]+actor_x) ?? (actor_x+actor_in_question["width"]/2),
+					(element[2]+actor_y) ?? (actor_x+actor_in_question["height"]/2),
 					element[3] ?? ((Math.min(actor_in_question["width"], actor_in_question["height"])/2))]);
 				tiles_check = Object.assign({}, tiles_check, tmp);
 			}
@@ -543,7 +651,10 @@ function is_actor_colliding_with_a_tile(actor_id, world_name=null, mode="scoped"
 		let tile_bounds = tile_box_type_collision(tilex, tiley, tile_collision_type);
 		while (i < l && ((tile_collision_type ?? "none") !== "none")){
 			element = actor_collision_bounds[i];
-			if (collision_classes[tile_types[value]["collision_class"]].ignore_collision_classes.includes(get_col_class_name(element))){
+			if (
+				collision_classes[tile_types[value]["collision_class"]].ignore_collision_classes.includes(get_col_class_name(element)) ||
+				!collision_classes[tile_types[value]["collision_class"]].collide_with_tiles
+			){
 				i++;
 				continue;
 			}
@@ -553,20 +664,29 @@ function is_actor_colliding_with_a_tile(actor_id, world_name=null, mode="scoped"
 						tilex+TILES_SIZE/2,
 						tiley+TILES_SIZE/2,
 						tile_types[value]["radius"] ?? (TILES_SIZE/2),
-						((element[1]) ?? (actor_in_question["width"]/2)) + actor_in_question["x"],
-						((element[2]) ?? (actor_in_question["height"]/2)) + actor_in_question["y"],
+						((element[1]) ?? (actor_in_question["width"]/2)) + actor_x,
+						((element[2]) ?? (actor_in_question["height"]/2)) + actor_y,
 						element[3] ?? ((Math.min(actor_in_question["width"], actor_in_question["height"])/2))
 					)){
 						success = true;
 						location = [tilex, tiley];
 						tile_name = value;
+						if (
+							tile_types[value].sensor ||
+							collision_classes[tile_types[value].collision_class].sensor ||
+							collision_classes[get_col_class_name(element)].sensor ||
+							actor_in_question.sensor
+						){
+							sensor = true;
+						}
+						class_name = get_col_class_name(element);
 						break;
 					}
 				}else if ((tile_collision_type === "circle") && (element[0] === "box")){
-					let a = [element[1]+actor_in_question["x"], element[2]+actor_in_question["y"]]
+					let a = [element[1]+actor_x, element[2]+actor_y]
 					let b = [
-						(element[3] !== null) ? element[1]+actor_in_question["x"]+element[3] : element[1]+actor_in_question["width"],
-						(element[4] !== null) ? element[2]+actor_in_question["y"]+element[4] : element[2]+actor_in_question["height"],
+						(element[3] !== null) ? element[1]+actor_x+element[3] : element[1]+actor_in_question["width"],
+						(element[4] !== null) ? element[2]+actor_y+element[4] : element[2]+actor_in_question["height"],
 					];
 					if (box_circle_collide(
 						a[0], a[1], b[0], b[1], tilex+TILES_SIZE/2,
@@ -576,33 +696,60 @@ function is_actor_colliding_with_a_tile(actor_id, world_name=null, mode="scoped"
 						success = true;
 						location = [tilex, tiley];
 						tile_name = value;
+						if (
+							tile_types[value].sensor ||
+							collision_classes[tile_types[value].collision_class].sensor ||
+							collision_classes[get_col_class_name(element)].sensor ||
+							actor_in_question.sensor
+						){
+							sensor = true;
+						}
+						class_name = get_col_class_name(element);
 						break;
 					}
 				}
 			}else {
 				if (element[0] === "box"){
-					let a = [element[1]+actor_in_question["x"], element[2]+actor_in_question["y"]]
+					let a = [element[1]+actor_x, element[2]+actor_y]
 					let b = [
-						(element[3] !== null) ? element[1]+actor_in_question["x"]+element[3] : element[1]+actor_in_question["width"],
-						(element[4] !== null) ? element[2]+actor_in_question["y"]+element[4] : element[2]+actor_in_question["height"],
+						(element[3] !== null) ? element[1]+actor_x+element[3] : element[1]+actor_in_question["width"],
+						(element[4] !== null) ? element[2]+actor_y+element[4] : element[2]+actor_in_question["height"],
 					];
 					if (box_box_collide(tile_bounds[0], tile_bounds[1], tile_bounds[2], tile_bounds[3], a[0], a[1], b[0], b[1])){
 						success = true;
 						location = [tilex, tiley];
 						tile_name = value;
+						if (
+							tile_types[value].sensor ||
+							collision_classes[tile_types[value].collision_class].sensor ||
+							collision_classes[get_col_class_name(element)].sensor ||
+							actor_in_question.sensor
+						){
+							sensor = true;
+						}
+						class_name = get_col_class_name(element);
 						break;
 					}
 				}else if (element[0] === "circle"){
 					if (box_circle_collide(
 					tile_bounds[0], tile_bounds[1],
 					tile_bounds[2], tile_bounds[3],
-					(element[1] ?? (actor_in_question["width"]/2)) + actor_in_question["x"],
-					(element[2] ?? (actor_in_question["height"]/2)) + actor_in_question["y"],
+					(element[1] ?? (actor_in_question["width"]/2)) + actor_x,
+					(element[2] ?? (actor_in_question["height"]/2)) + actor_y,
 					element[3] ?? (Math.min(actor_in_question["width"], actor_in_question["height"])/2)
 					)){
 						success = true;
 						location = [tilex, tiley];
 						tile_name = value;
+						if (
+							tile_types[value].sensor ||
+							collision_classes[tile_types[value].collision_class].sensor ||
+							collision_classes[get_col_class_name(element)].sensor ||
+							actor_in_question.sensor
+						){
+							sensor = true;
+						}
+						class_name = get_col_class_name(element);
 						break;
 					}
 				}
@@ -617,7 +764,13 @@ function is_actor_colliding_with_a_tile(actor_id, world_name=null, mode="scoped"
 	if (success === false){
 		return false;
 	}
-	return [success, location, tile_name];
+	
+	for (let i = 0; i < collision_classes[tile_types[tile_name].collision_class].on_collide.length; i++) {
+		if (collision_classes[tile_types[tile_name].collision_class].on_collide[i][0] === class_name || collision_classes[tile_types[tile_name].collision_class].on_collide[i][0] === true){
+			collision_classes[tile_types[tile_name].collision_class].on_collide[i][1]();
+		}
+	}
+	return [success, location, tile_name, sensor];
 }
 
 function basically_zero(x, e=10**-1){
@@ -723,6 +876,18 @@ function is_actor_col_actor(actor_id1, actor_id2, world_name=null){
 			x++;
 			continue;
 		}
+		let actor1x = actor1.x;
+		let actor1y = actor1.y;
+		let actor2x = actor2.x;
+		let actor2y = actor2.y;
+		if (actor1.screen_locked){
+			actor1x += camera.x;
+			actor1y += camera.y;
+		}
+		if (actor2.screen_locked){
+			actor2x += camera.x;
+			actor2y += camera.y;
+		}
 		while (y < actor2_bounds_l){
 			actor2_bound = actor2_bounds[y];
 			bc = get_col_class_name(actor2_bound);
@@ -740,11 +905,11 @@ function is_actor_col_actor(actor_id1, actor_id2, world_name=null){
 			}
 			if (actor1_bound[0] === "circle" && actor2_bound[0] === "circle"){
 				if (circle_circle_collide(
-					(actor1_bound[1] ?? (actor1.width/2)) + actor1.x,
-					(actor1_bound[2] ?? (actor1.height/2)) + actor1.y,
+					((actor1_bound[1] ?? (actor1.width/2)) + actor1x),
+					(actor1_bound[2] ?? (actor1.height/2)) + actor1y,
 					actor1_bound[3] ?? (Math.min(actor1.width, actor1.height)/2),
-					(actor2_bound[1] ?? (actor2.width/2)) + actor2.x,
-					(actor2_bound[2] ?? (actor2.height/2)) + actor2.y,
+					(actor2_bound[1] ?? (actor2.width/2)) + actor2x,
+					(actor2_bound[2] ?? (actor2.height/2)) + actor2y,
 					actor2_bound[3] ?? (Math.min(actor2.width, actor2.height)/2),
 				)){
 					collided = true;
@@ -755,12 +920,12 @@ function is_actor_col_actor(actor_id1, actor_id2, world_name=null){
 				}
 			}else if (actor1_bound[0] === "circle" && actor2_bound[0] === "box"){
 				if (box_circle_collide(
-					actor2_bound[1]+actor2.x,
-					actor2_bound[2]+actor2.y,
-					(actor2_bound[3] ?? actor2.width)+actor2_bound[1]+actor2.x,
-					(actor2_bound[4] ?? actor2.height)+actor2_bound[2]+actor2.y,
-					(actor1_bound[1] ?? (actor1.width/2)) + actor1.x,
-					(actor1_bound[2] ?? (actor1.height/2)) + actor1.y,
+					actor2_bound[1]+actor2x,
+					actor2_bound[2]+actor2y,
+					(actor2_bound[3] ?? actor2.width)+actor2_bound[1]+actor2x,
+					(actor2_bound[4] ?? actor2.height)+actor2_bound[2]+actor2y,
+					(actor1_bound[1] ?? (actor1.width/2)) + actor1x,
+					(actor1_bound[2] ?? (actor1.height/2)) + actor1y,
 					actor1_bound[3] ?? (Math.min(actor1.width, actor1.height)/2),
 				)){
 					collided = true;
@@ -771,12 +936,12 @@ function is_actor_col_actor(actor_id1, actor_id2, world_name=null){
 				}
 			}else if (actor1_bound[0] === "box" && actor2_bound[0] === "circle"){
 				if (box_circle_collide(
-					actor1_bound[1]+actor1.x,
-					actor1_bound[2]+actor1.y,
-					(actor1_bound[3] ?? actor1.width)+actor1_bound[1]+actor1.x,
-					(actor1_bound[4] ?? actor1.height)+actor1_bound[2]+actor1.y,
-					(actor2_bound[1] ?? (actor2.width/2)) + actor2.x,
-					(actor2_bound[2] ?? (actor2.height/2)) + actor2.y,
+					actor1_bound[1]+actor1x,
+					actor1_bound[2]+actor1y,
+					(actor1_bound[3] ?? actor1.width)+actor1_bound[1]+actor1x,
+					(actor1_bound[4] ?? actor1.height)+actor1_bound[2]+actor1y,
+					(actor2_bound[1] ?? (actor2.width/2)) + actor2x,
+					(actor2_bound[2] ?? (actor2.height/2)) + actor2y,
 					actor2_bound[3] ?? (Math.min(actor2.width, actor2.height)/2),
 				)){
 					collided = true;
@@ -787,14 +952,14 @@ function is_actor_col_actor(actor_id1, actor_id2, world_name=null){
 				}
 			}else if (actor1_bound[0] === "box" && actor2_bound[0] === "box"){
 				if (box_box_collide(
-					actor1_bound[1]+actor1.x,
-					actor1_bound[2]+actor1.y,
-					(actor1_bound[3] ?? actor1.width)+actor1_bound[1]+actor1.x,
-					(actor1_bound[4] ?? actor1.height)+actor1_bound[2]+actor1.y,
-					actor2_bound[1]+actor2.x,
-					actor2_bound[2]+actor2.y,
-					(actor2_bound[3] ?? actor2.width)+actor2_bound[1]+actor2.x,
-					(actor2_bound[4] ?? actor2.height)+actor2_bound[2]+actor2.y,
+					actor1_bound[1]+actor1x,
+					actor1_bound[2]+actor1y,
+					(actor1_bound[3] ?? actor1.width)+actor1_bound[1]+actor1x,
+					(actor1_bound[4] ?? actor1.height)+actor1_bound[2]+actor1y,
+					actor2_bound[1]+actor2x,
+					actor2_bound[2]+actor2y,
+					(actor2_bound[3] ?? actor2.width)+actor2_bound[1]+actor2x,
+					(actor2_bound[4] ?? actor2.height)+actor2_bound[2]+actor2y,
 				)){
 					collided = true;
 					if ((collision_classes[ac] ?? {"sensor": false}).sensor || (collision_classes[bc] ?? {"sensor": false}).sensor){
@@ -822,7 +987,6 @@ function is_actor_col_actor(actor_id1, actor_id2, world_name=null){
 	if (bc !== null && collided){
 		actions2 = collision_classes[bc].on_collide;
 	}
-
 	actions1.forEach(element => {
 		if (element[0] === true){
 			element[1]();
@@ -911,12 +1075,17 @@ function apply_physics(){
 		actor["vx"] = basically_zero(actor["vx"]);
 		actor["vy"] = basically_zero(actor["vy"]);
 		function collision_stuff(){
+			//info[0]: has collided boolean, info[1]: tile location, info[2]: tile name, info[3]: is it a sensor
+			//info2[0]: has_collided_boolean, info2[1]: is it a sensor, info[2]: collided with actor id
 			let did_something = false;
 			if (!actor.swept_collision_mode){
 				actor["y"] += actor["vy"];
 			}
 			info = is_actor_colliding_with_a_tile(i, current_world_name, COLLISION_DETECTION_MODE);
 			info2 = is_actor_colliding_with_an_actor(i);
+			if (info[3] || info2[1]){
+				return did_something;
+			}
 			if ((info2[0] && !info2[1]) && actor.pushable){
 				push_val = average(actor.push_motion_transfer, worlds[current_world_name]["actors"][info2[2]].push_motion_transfer);
 				if (Math.abs(actor.vy) > Math.abs(worlds[current_world_name]["actors"][info2[2]].vy)){
@@ -930,19 +1099,26 @@ function apply_physics(){
 			}
 			if ((info !== false) && !(info2[0] && !info2[1])){
 				actor["vy"] = -Math.sign(actor["vy"])*average(actor["bounce"]["y"], tile_types[info[2]]["bounce"]["y"]);
-				actor["vx"] *= 2**(-average(actor.friction.x, tile_types[info[2]]["friction"]["x"]));
+				if (actor.affected_by_friction){
+					actor["vx"] *= 2**(-average(actor.friction.x, tile_types[info[2]]["friction"]["x"]));
+				}
 				did_something = true;
 			}else if ((info === false) && (info2[0] && !info2[1])){
 				actor["vy"] = -Math.sign(actor["vy"])*average(actor["bounce"]["y"], worlds[current_world_name]["actors"][info2[2]]["bounce"]["y"]);
-				actor["vx"] *= 2**(-average(actor.friction.x, worlds[current_world_name]["actors"][info2[2]]["friction"]["x"]));
+				if (actor.affected_by_friction){
+					actor["vx"] *= 2**(-average(actor.friction.x, worlds[current_world_name]["actors"][info2[2]]["friction"]["x"]));
+				}
 				did_something = true;
 			}else if ((info !== false) && (info2[0] && !info2[1])){
 				actor["vy"] = -Math.sign(actor["vy"])*m_average([actor["bounce"]["y"], worlds[current_world_name]["actors"][info2[2]]["bounce"]["y"], tile_types[info[2]]["bounce"]["y"]]);
-				actor["vx"] *= 2**(-m_average([actor.friction.x, worlds[current_world_name]["actors"][info2[2]]["friction"]["x"], tile_types[info[2]]["friction"]["x"]]));
+				if (actor.affected_by_friction){
+					actor["vx"] *= 2**(-m_average([actor.friction.x, worlds[current_world_name]["actors"][info2[2]]["friction"]["x"], tile_types[info[2]]["friction"]["x"]]));
+				}
 				did_something = true;
 			}
 			if (!actor.swept_collision_mode){
 				actor["x"] += actor["vx"];
+				did_something = true;
 			}
 			info = is_actor_colliding_with_a_tile(i, current_world_name, COLLISION_DETECTION_MODE);
 			info2 = is_actor_colliding_with_an_actor(i);
@@ -959,17 +1135,24 @@ function apply_physics(){
 			}
 			if ((info !== false) && !(info2[0] && !info2[1])){
 				actor["vx"] = -Math.sign(actor["vx"])*average(actor["bounce"]["x"], tile_types[info[2]]["bounce"]["x"]);
-				actor["vy"] *= 2**(-average(actor.friction.y, tile_types[info[2]]["friction"]["y"]));
+				if (actor.affected_by_friction){
+					actor["vy"] *= 2**(-average(actor.friction.y, tile_types[info[2]]["friction"]["y"]));
+				}
 				did_something = true;
 			}else if ((info === false) && (info2[0] && !info2[1])){
 				actor["vx"] = -Math.sign(actor["vx"])*average(actor["bounce"]["x"], worlds[current_world_name]["actors"][info2[2]]["bounce"]["x"]);
-				actor["vy"] *= 2**(-average(actor.friction.y, worlds[current_world_name]["actors"][info2[2]]["friction"]["y"]));
+				if (actor.affected_by_friction){
+					actor["vy"] *= 2**(-average(actor.friction.y, worlds[current_world_name]["actors"][info2[2]]["friction"]["y"]));
+				}
 				did_something = true;
 			}else if ((info !== false) && (info2[0] && !info2[1])){
 				actor["vx"] = -Math.sign(actor["vx"])*m_average([actor["bounce"]["x"], worlds[current_world_name]["actors"][info2[2]]["bounce"]["x"], tile_types[info[2]]["bounce"]["x"]]);
-				actor["vx"] *= 2**(-m_average([actor.friction.x, worlds[current_world_name]["actors"][info2[2]]["friction"]["x"], tile_types[info[2]]["friction"]["x"]]));
+				if (actor.affected_by_friction){
+					actor["vx"] *= 2**(-m_average([actor.friction.x, worlds[current_world_name]["actors"][info2[2]]["friction"]["x"], tile_types[info[2]]["friction"]["x"]]));
+				}
 				did_something = true;
 			}
+			return did_something;
 		}
 		if (actor["sensor"]){
 			actor["x"] += actor["vx"];
@@ -991,7 +1174,7 @@ function apply_physics(){
 					break;
 				}
 			}
-		} else {
+		}else {
 			collision_stuff();
 		}
 		i++;
@@ -1032,8 +1215,170 @@ function draw_camera_specials(){
 	}
 }
 
+function camera_shake(ix, iy, time){
+	camera.shake_clock = 0;
+	let done = false;
+	setTimeout(function (){done = true; clearInterval(camera.shake_interval);}, time);
+	camera.shake_interval = setInterval(function (){
+		if (!done){
+		if (camera.shake_clock % 2 == 0){
+			camera.x += ix;
+			camera.y += iy;
+		}else {
+			camera.x -= ix;
+			camera.y -= iy;
+		}
+		camera.shake_clock++;}
+	}, 1000/fps);
+}
+
 //CREATE
 
-function create_actor_type(params) {
-	
+function cr_collision_element(type, col_class, x, y, z, w=null){
+	if (col_class === null){
+		if (type === "box"){
+			return ["box", x, y, z, w];
+		}
+		if (type === "circle"){
+			return ["circle", x, y, z];
+		}
+	}
+	if (!(col_class in collision_classes)){
+		console.log("collision class does not exist: ", col_class);
+		return null;
+	}
+	if (type === "box"){
+		return ["box", x, y, z, w, col_class];
+	}
+	if (type === "circle"){
+		return ["circle", x, y, z, col_class];
+	}
+	console.log("incorrect collision type, has to be either box or circle", type);
+	return null;
 }
+
+function cr_frame(image_name, ms, collision_element=null){
+	if (collision_element === null){
+		return [image_name, ms];
+	}
+	return [image_name, ms, collision_element];
+}
+
+function cr_animation(frames_array, loop){
+	return {
+		"frames":frames_array,
+		"loop":loop,
+	};
+}
+
+function cr_actor_type(name, p) {
+	actor_types[name] = {
+		"image_mode": p.image_mode ?? "static",//'static' / 'animated'
+		"static_image_name": p.static_image_name ?? null,//string image name
+		"collision_mode": p.image_mode ?? "static",//'static' / 'dynamic'
+		"swept_collision_mode": p.swept_collision_mode ?? false,//true / false
+		"swept_collision_mode_step": p.swept_collision_mode_step ?? 1,// an integer
+		"static_collisions": p.static_collisions ?? null,//[]
+		"width": p.width,//number
+		"height": p.height,//number
+		"angle": p.angle ?? 0,//number in degrees
+		"rotation_center": p.rotation_center ?? "center", //[number, number] / 'center' (coordinates in relation to top left of actor)
+		"collide_with_tiles": p.collide_with_tiles ?? true,//boolean
+		"collide_with_actors": p.collide_with_actors ?? true,//boolean
+		"sensor": p.sensor ?? false,//boolean
+		"dead": p.dead ?? false,//boolean
+		"playing_animation": p.playing_animation ?? null,//string that is a name of a animation in `animations`
+		"playing_animation_frame": p.playing_animation_frame ?? 0,//integer
+		"animation_clock": p.animation_clock ?? 0,//number
+		"always_physics_load": p.always_physics_load ?? false,//boolean, when it is true: makes it so that the physics of it are applied even when off screen
+		"always_appearance_load": p.always_appearance_load ?? false,//boolean, when it is true: makes it so that the appearance of it are applied even when off screen
+		"animations": p.animations ?? {},
+		"vx": p.vx ?? 0,//number velocity in x direction
+		"vy": p.vy ?? 0,//number velocity in y direction
+		"air_resistance":{
+			"x": p.air_resistance.x ?? 0,//air resistance in x direction, 0 is no resistance contribution to medium_drag
+			"y": p.air_resistance.x ?? 0,//air resistance in y direction, 0 is no resistance contribution to medium_drag
+		},
+		"friction":{
+			"x": p.friction.x ?? 0,//friction in x direction, 0 is no friction contribution
+			"y": p.friction.y ?? 0,//friction in y direction, 0 is no friction contribution
+		},
+		"bounce":{
+			"x": p.bounce.x ?? 0,//`bounciness` in x direction, 0 is no bounciness contribution
+			"y": p.bounce.y ?? 0,//`bounciness` in y direction, 0 is no bounciness contribution
+		},
+		"affected_by_gravity": p.affected_by_gravity ?? false,//boolean
+		"affected_by_air_resistance": p.affected_by_air_resistance ?? false,//boolean
+		"affected_by_friction": p.affected_by_friction ?? false,//boolean
+		"pushable": p.pushable ?? false,//boolean
+		"push_motion_transfer": p.push_motion_transfer ?? 0,//contributes to the velocity it should transfer to the collided actor, 0 is no contribution
+		"screen_locked": p.screen_locked ?? false,//makes it act like a HUD element
+	};
+}
+
+function cr_tile_type(name, p){
+	tile_types[name] = {
+		"image_mode": p.image_mode ?? "static",//'static' / 'animated'
+		"static_image_name": p.static_image_name ?? null,//string image name
+		"collision": p.collision ?? "none",//'box' / 'circle' / 'none' / 'bottom_half_box' / 'top_half_box' / 'top_half_box' / 'left_half_box' / 'right_half_box'
+		"collision_class": p.collision_class,//string
+		"sensor": p.sensor ?? false,//boolean
+		"playing_animation_frame": p.playing_animation_frame ?? 0,
+		"playing_animation": p.playing_animation ?? null,//string
+		"animation_clock": p.animation_clock ?? 0,
+		"animations": p.animations ?? {},
+		"friction":{
+			"x": p.friction.x ?? 0,
+			"y":p.friction.y ?? 0,
+		},
+		"bounce":{
+			"x": p.bounce.x ?? 0,
+			"y": p.bounce.y ?? 0,
+		}
+	}
+}
+
+function cr_collision_class(name, p){
+	collision_classes[name] = {
+		"collide_with_tiles": p.collide_with_tiles ?? true,
+		"collide_with_actors": p.collide_with_actors ?? true,
+		"ignore_collision_classes": p.ignore_collision_classes ?? [],//put true for all, put [] for none
+		"sensor": p.sensor ?? false,
+		"on_collide":[],//["collision_class_name", function], ... (activates when a certain collision class collides with it)
+	}
+}
+
+function cr_world(name, p){
+	worlds[name] ={
+		"actors": p.actors ?? [],
+		"tiles": p.tiles ?? {},
+		"background_color": p.background_color ?? "white",
+		"background_image": p.background_image ?? null,
+		"background_image_scrollable": p.background_image_scrollable ?? false,
+		"background_image_position":{
+			"x": p.background_image_position.x ?? 0,
+			"y": p.background_image_position.y ?? 0,
+		},
+		"background_image_width": p.background_image_width ?? null,
+		"background_image_height": p.background_image_height ?? null,
+		"background_image_affected_by_zoom": p.background_image_affected_by_zoom ?? false,
+		"background_image_scroll_speed":{
+			"x": p.background_image_scroll_speed.x ?? 0,
+			"y": p.background_image_scroll_speed.y ?? 0,
+		},
+		"gravity":{
+			"x": p.gravity.x ?? 0,
+			"y": p.gravity.y ?? 0,
+			"exist": p.gravity.exist ?? true,
+		},
+		"medium_drag":{
+			"x": p.medium_drag.x ?? 0,
+			"y": p.medium_drag.y ?? 0,
+			"exist": p.medium_drag.exist ?? true,
+		},
+		"always_tiles_load": p.always_tiles_load ?? false,
+	}
+}
+
+//drawing //in world drawing
+function dr_image(image_name, x, y, width, height, locked_to_screen){}

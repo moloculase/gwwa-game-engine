@@ -2,11 +2,22 @@ load_images(["a.png", "c.png", "pixel_grid.png", "images.png","y.png"])
 
 tile_types["default"] = {
 	"image_mode":"static",
-	"image_name":"a",
+	"static_image_name":"a",
 	"collision":"box",//put "none" for no collision
 	"collision_class":"gwwa",
 	"sensor":false,
-	"animations":{},
+	"playing_animation_frame":0,
+	"playing_animation":"default",
+	"animation_clock":0,
+	"animations":{
+		"default":{
+			"frames":[
+			["c", 1000],
+			["a", 1000]
+			],
+			"loop":true,
+		},
+	},
 	"friction":{
 		"x":0.4,
 		"y":1,
@@ -45,11 +56,11 @@ collision_classes["gwwa"] = {
 
 actor_types["player"] = {
 	"image_mode":"static",
-	"static_image_name":"y",
+	"static_image_name":"pixel_grid",
 	"collision_mode":"static",
 	"swept_collision_mode":false,
 	"swept_collision_mode_step":1,
-	"static_collisions":[["circle", 25, 25, 10, "gwwa"]],
+	"static_collisions":[["box", 0, 0, 50, 50, "gwwa"]],
 	"width":50,
 	"height":50,
 	"angle":0,
@@ -95,8 +106,10 @@ actor_types["player"] = {
 	},
 	"affected_by_gravity":true,
 	"affected_by_air_resistance":true,
+	"affected_by_friction":true,
 	"pushable":true,
 	"push_motion_transfer":0.5,
+	"screen_locked":false,
 };
 place_actor("player", 30, 50);
 place_actor("player", 200, 0);
@@ -142,7 +155,7 @@ function game_loop() {
 	if (keys["KeyX"]){
 		actors(0)["x"] = in_world_mouse_pos()[0];
 		actors(0)["y"] = in_world_mouse_pos()[1];
-		console.log(in_world_mouse_pos());
+		//console.log(in_world_mouse_pos());
 	}
 	//console.log(is_actor_col_actor(0, 1));
 	draw_background();
